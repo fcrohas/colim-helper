@@ -14,4 +14,4 @@
   Start plugin, it should crop the star in your main firecapture screen.
   You can change stack size, color filter, or luminosity
   
-  ![UI](https://github.com/fcrohas/colim-helper/images/screenshot.png
+  ![UI](https://github.com/fcrohas/colim-helper/blob/main/images/screenshot.png?raw=true)
