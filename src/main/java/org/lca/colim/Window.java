@@ -6,13 +6,14 @@ import org.opencv.imgproc.Imgproc;
 import org.opencv.imgproc.Moments;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
-import java.awt.image.DataBufferInt;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.opencv.imgproc.Imgproc.accumulate;
-import static org.opencv.imgproc.Imgproc.moments;
 
 public class Window {
     public static final String PIXEL_SIZE = "Pixel size : ";
@@ -21,11 +22,14 @@ public class Window {
     private Label label;
     private Label error;
     private Checkbox doCropCheck = null;
-    private Checkbox doAvgCheck = null;
     private Checkbox doCorrCheck = null;
     private ComboBoxEditor doCropChoice = null;
+    private JComboBox bayerList = null;
+    private JComboBox colorList = null;
+    private JPanel panel = null;
     private BufferedImage target = null;
     private Mat source = null;
+    private Mat color = null;
     private Mat stack = new Mat();
     private Mat stackr = new Mat();
     private Mat stackrc = new Mat();
@@ -34,8 +38,6 @@ public class Window {
     private Mat xAxis = null;
     private Mat yAxis = null;
     private Mat warpMat = null;
-    private Mat acc = null;
-    private Mat avg = null;
     private JSlider framesPerStack = null;
     private JSlider framesZoom = null;
     private JSlider framesNormalizeMin = null;
@@ -45,8 +47,8 @@ public class Window {
     private int stackCount = 0;
     private int scale = 1;
     private boolean doCrop = true;
-    private int meanXdir = 0;
-    private int meanYdir = 0;
+    private String[] bayerMatrix = { "RG", "BG", "GB", "GR" };
+    private String[] colors = { "RED", "GREEN", "BLUE" };
 
     static {
         try {
@@ -64,31 +66,42 @@ public class Window {
         // init frame
         frame = new JFrame("Colimation Helper");
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        JPanel panel = new JPanel() {
+        panel = new JPanel() {
             @Override
             protected void paintComponent(Graphics g) {
                 super.paintComponent(g);
                 if (target != null) {
                     g.drawImage(target.getScaledInstance(this.getWidth(), this.getHeight(), Image.SCALE_SMOOTH), 0, 0, null);
+                    //this.repaint();
                 }
             }
         };
         framesPerStack = new JSlider(JSlider.HORIZONTAL, 2, 400, 10);
         toolbar.setLayout(new BoxLayout(toolbar, BoxLayout.Y_AXIS));
         doCropCheck = new Checkbox("Crop image", doCrop);
-        doAvgCheck = new Checkbox("Average image", false);
         doCorrCheck = new Checkbox("Show correction", false);
         Label zoomLabel= new Label("Scale");
         Label normalizeLabel= new Label("Normalize");
         Label stackCountLabel= new Label("To stack");
         Label cropSizeLabel= new Label("Crop size");
-        framesZoom = new JSlider(JSlider.HORIZONTAL, 1, 20, 1);
+        Label bayerPatternLabel= new Label("Bayer pattern");
+        Label colorChannelLabel= new Label("Color channel");
+        colorChannelLabel.setIgnoreRepaint(true);
+        framesZoom = new JSlider(JSlider.HORIZONTAL, 1, 20, 2);
         framesNormalizeMin = new JSlider(JSlider.HORIZONTAL, 0, 255, 0);
         framesNormalizeMax = new JSlider(JSlider.HORIZONTAL, 0, 255, 200);
         cropSize = new JSlider(JSlider.HORIZONTAL, 25, 150, 75);
+        bayerList = new JComboBox(bayerMatrix);
+        colorList = new JComboBox(colors);
+        colorList.setLightWeightPopupEnabled(false);
+        bayerList.setLightWeightPopupEnabled(false);
         label = new Label(PIXEL_SIZE);
         error = new Label("");
         toolbar.add(label);
+        toolbar.add(bayerPatternLabel, BorderLayout.NORTH);
+        toolbar.add(bayerList, BorderLayout.NORTH);
+        toolbar.add(colorChannelLabel, BorderLayout.NORTH);
+        toolbar.add(colorList, BorderLayout.NORTH);
         toolbar.add(normalizeLabel);
         toolbar.add(framesNormalizeMin, BorderLayout.NORTH);
         toolbar.add(framesNormalizeMax, BorderLayout.NORTH);
@@ -99,29 +112,38 @@ public class Window {
         toolbar.add(cropSize, BorderLayout.NORTH);
         toolbar.add(zoomLabel);
         toolbar.add(framesZoom, BorderLayout.NORTH);
-        toolbar.add(doAvgCheck, BorderLayout.NORTH);
         toolbar.add(doCorrCheck, BorderLayout.NORTH);
         frame.getContentPane().add(toolbar, BorderLayout.EAST);
         panel.setLayout(new BorderLayout());
         frame.add(panel, BorderLayout.CENTER);
         frame.getContentPane().add(error, BorderLayout.SOUTH);
-        frame.pack();
-        frame.setVisible(true);
         frame.setAlwaysOnTop(true);
         frame.setMinimumSize(new Dimension(600, 400));
+        frame.pack();
+        frame.validate();
+        frame.setVisible(true);
+        frame.setLocationRelativeTo(null);
     }
 
     public void drawMono(byte[] pixels, Rectangle imageSize, CamInfo info) {
         int pixelType = info.is16Bit ? CvType.CV_16UC1 : CvType.CV_8UC1;
+        // Bayer matrix
+        int bayerFmt = Imgproc.COLOR_BayerRG2RGB;
+        switch(bayerList.getSelectedIndex()) {
+            case 0: bayerFmt = Imgproc.COLOR_BayerRG2RGB; break;
+            case 1: bayerFmt = Imgproc.COLOR_BayerBG2RGB; break;
+            case 2: bayerFmt = Imgproc.COLOR_BayerGR2RGB; break;
+            case 3: bayerFmt = Imgproc.COLOR_BayerGB2RGB; break;
+        }
         // init
         Size boxSize = new Size(cropSize.getValue(), cropSize.getValue());
         if (source == null || scale != framesZoom.getValue()) {
             scale = framesZoom.getValue();
-            avg = new Mat(stack.size(), stack.type());
             target = new BufferedImage((int)(boxSize.width * scale), (int)(boxSize.height * scale), BufferedImage.TYPE_3BYTE_BGR);
             source = new Mat(imageSize.height, imageSize.width, pixelType);
+            color = new Mat(imageSize.height, imageSize.width, info.is16Bit ? CvType.CV_16UC3 : CvType.CV_8UC3);
             stack = new Mat((int)(boxSize.height), (int)(boxSize.width), pixelType);
-            stackr = new Mat((int)(boxSize.height * scale), (int)(boxSize.width * scale), CvType.CV_8UC3);
+            stackr = new Mat((int)(boxSize.height * scale), (int)(boxSize.width * scale), CvType.CV_8UC1);
             stackrc = new Mat((int)(boxSize.height * scale), (int)(boxSize.width * scale), CvType.CV_8UC3);
         }
         // Crop if needed ?
@@ -133,8 +155,13 @@ public class Window {
             error.setText("No error.");
             // Fill matrix
             source.put(0, 0, pixels);
-            // light blur to avoid noise
-            //Imgproc.medianBlur(source, source,5);
+            // Do debayer
+            Imgproc.cvtColor(source, color, bayerFmt);
+            // Split color channels
+            List<Mat> planes = new ArrayList<>();
+            Core.split(color, planes);
+            // Select the right one
+            source = planes.get(colorList.getSelectedIndex());
             // Get projection
             Core.reduce(source, xAxis, 0, Core.REDUCE_SUM, CvType.CV_32S);
             Core.reduce(source, yAxis, 1, Core.REDUCE_SUM, CvType.CV_32S);
@@ -144,10 +171,6 @@ public class Window {
             org.opencv.core.Point center = new org.opencv.core.Point((int)mmrX.maxLoc.x, (int)mmrY.maxLoc.y);
             int maxPeak = ((int)mmrX.maxVal + (int)mmrY.maxVal) / 2;
             meanLevel = (meanLevel + maxPeak) / 2;
-            // Spot region on image
-            //Imgproc.resize(source, targetM, targetM.size(), scale, scale, Imgproc.INTER_NEAREST);
-            // draw center
-            //Imgproc.circle(targetM, center, 20, new Scalar(255,0,0));
             // Compute direction move to center
             int translateX = (int)(source.cols() / 2 - center.x);
             int translateY = (int)(source.rows() / 2 - center.y);
@@ -164,17 +187,8 @@ public class Window {
             // Stack n count
             if (counter < framesPerStack.getValue()) {
                 if  (maxPeak > meanLevel) {
-                    if (doAvgCheck.getState()) {
-                        Mat acc = new Mat(stack.size(), CvType.CV_64F, new Scalar(0));
-                        accumulate(stack, acc);
-                        accumulate(targetr, acc);
-                        acc.convertTo(avg, pixelType, 1.0 / 2);
-                        Core.normalize(stack, stack, framesNormalizeMin.getValue(), framesNormalizeMax.getValue(), Core.NORM_MINMAX);
-                        acc.release();
-                    } else {
-                        Core.add(stack, targetr.clone(), stack);
-                        Core.normalize(stack, stack, framesNormalizeMin.getValue(), framesNormalizeMax.getValue(), Core.NORM_MINMAX);
-                    }
+                    Core.add(stack, targetr.clone(), stack);
+                    Core.normalize(stack, stack, framesNormalizeMin.getValue(), framesNormalizeMax.getValue(), Core.NORM_MINMAX);
                     stackCount++;
                 }
                 counter++;
@@ -197,17 +211,6 @@ public class Window {
                     // scale up line
                     Imgproc.line(stackrc, new org.opencv.core.Point(centerX, centerY),
                             new org.opencv.core.Point(centerX + (targetP.x - centerX) * 20, centerY + (targetP.y - centerY) * 20), new Scalar(255, 0, 0));
-                    // compute mean
-                    if (meanXdir == 0 && meanYdir == 0) {
-                        meanXdir = (int)targetP.x;
-                        meanYdir = (int)targetP.y;
-                    } else {
-                        meanXdir = ((int)targetP.x + meanXdir) / 2;
-                        meanYdir = ((int)targetP.y + meanYdir) / 2;
-                    }
-                    // draw mean line
-                    Imgproc.line(stackrc, new org.opencv.core.Point(centerX, centerY),
-                            new org.opencv.core.Point(centerX + (meanXdir - centerX) * 20, centerY + (meanYdir - centerY) * 20), new Scalar(0, 255, 0));
                 }
                 final byte[] data = ((DataBufferByte) target.getRaster().getDataBuffer()).getData();
                 stackrc.get(0,0, data);
@@ -217,10 +220,11 @@ public class Window {
         } catch(Exception e) {
             error.setText("Error : " + e.getMessage());
         }
-        frame.repaint();
+        panel.repaint();
     }
 
     public void drawColor(int[] rgbPixels, Rectangle imageSize) {
+
     }
 
     public void dispose() {
@@ -228,8 +232,10 @@ public class Window {
         xAxis.release();
         yAxis.release();
         source.release();
+        color.release();
         stack.release();
         stackr.release();
+        stackrc.release();
         warpMat.release();
         source = null;
         stack = null;
