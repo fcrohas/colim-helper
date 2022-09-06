@@ -6,13 +6,14 @@ import org.opencv.imgproc.Imgproc;
 import org.opencv.imgproc.Moments;
 
 import javax.swing.*;
-import javax.swing.border.Border;
 import java.awt.*;
-import java.awt.image.BufferedImage;
-import java.awt.image.DataBufferByte;
+import java.awt.image.*;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.opencv.imgproc.Imgproc.COLOR_GRAY2BGR;
 import static org.opencv.imgproc.Imgproc.accumulate;
 
 public class Window {
@@ -39,16 +40,17 @@ public class Window {
     private Mat yAxis = null;
     private Mat warpMat = null;
     private JSlider framesPerStack = null;
-    private JSlider framesZoom = null;
     private JSlider framesNormalizeMin = null;
     private JSlider framesNormalizeMax = null;
     private JSlider cropSize = null;
     private int meanLevel = 0;
     private int stackCount = 0;
-    private int scale = 1;
     private boolean doCrop = true;
-    private String[] bayerMatrix = { "RG", "BG", "GB", "GR" };
-    private String[] colors = { "RED", "GREEN", "BLUE" };
+    private String[] bayerMatrix = { "RG", "BG", "GR", "GB" };
+    private String[] colors = { "BLUE", "GREEN", "RED" };
+    private boolean is16Bits = false;
+    private int meanDirX = 0;
+    private int meanDirY = 0;
 
     static {
         try {
@@ -80,19 +82,18 @@ public class Window {
         toolbar.setLayout(new BoxLayout(toolbar, BoxLayout.Y_AXIS));
         doCropCheck = new Checkbox("Crop image", doCrop);
         doCorrCheck = new Checkbox("Show correction", false);
-        Label zoomLabel= new Label("Scale");
         Label normalizeLabel= new Label("Normalize");
         Label stackCountLabel= new Label("To stack");
         Label cropSizeLabel= new Label("Crop size");
         Label bayerPatternLabel= new Label("Bayer pattern");
         Label colorChannelLabel= new Label("Color channel");
         colorChannelLabel.setIgnoreRepaint(true);
-        framesZoom = new JSlider(JSlider.HORIZONTAL, 1, 20, 2);
         framesNormalizeMin = new JSlider(JSlider.HORIZONTAL, 0, 255, 0);
         framesNormalizeMax = new JSlider(JSlider.HORIZONTAL, 0, 255, 200);
         cropSize = new JSlider(JSlider.HORIZONTAL, 25, 150, 75);
         bayerList = new JComboBox(bayerMatrix);
         colorList = new JComboBox(colors);
+        colorList.setSelectedIndex(2);
         colorList.setLightWeightPopupEnabled(false);
         bayerList.setLightWeightPopupEnabled(false);
         label = new Label(PIXEL_SIZE);
@@ -110,8 +111,6 @@ public class Window {
         toolbar.add(doCropCheck, BorderLayout.NORTH);
         toolbar.add(cropSizeLabel);
         toolbar.add(cropSize, BorderLayout.NORTH);
-        toolbar.add(zoomLabel);
-        toolbar.add(framesZoom, BorderLayout.NORTH);
         toolbar.add(doCorrCheck, BorderLayout.NORTH);
         frame.getContentPane().add(toolbar, BorderLayout.EAST);
         panel.setLayout(new BorderLayout());
@@ -126,35 +125,50 @@ public class Window {
     }
 
     public void drawMono(byte[] pixels, Rectangle imageSize, CamInfo info) {
+        // Init
         int pixelType = info.is16Bit ? CvType.CV_16UC1 : CvType.CV_8UC1;
         // Bayer matrix
-        int bayerFmt = Imgproc.COLOR_BayerRG2RGB;
+        int bayerFmt = Imgproc.COLOR_BayerRG2BGR;
         switch(bayerList.getSelectedIndex()) {
-            case 0: bayerFmt = Imgproc.COLOR_BayerRG2RGB; break;
-            case 1: bayerFmt = Imgproc.COLOR_BayerBG2RGB; break;
-            case 2: bayerFmt = Imgproc.COLOR_BayerGR2RGB; break;
-            case 3: bayerFmt = Imgproc.COLOR_BayerGB2RGB; break;
+            case 0: bayerFmt = Imgproc.COLOR_BayerRG2BGR; break;
+            case 1: bayerFmt = Imgproc.COLOR_BayerBG2BGR; break;
+            case 2: bayerFmt = Imgproc.COLOR_BayerGR2BGR; break;
+            case 3: bayerFmt = Imgproc.COLOR_BayerGB2BGR; break;
         }
         // init
         Size boxSize = new Size(cropSize.getValue(), cropSize.getValue());
-        if (source == null || scale != framesZoom.getValue()) {
-            scale = framesZoom.getValue();
-            target = new BufferedImage((int)(boxSize.width * scale), (int)(boxSize.height * scale), BufferedImage.TYPE_3BYTE_BGR);
-            source = new Mat(imageSize.height, imageSize.width, pixelType);
-            color = new Mat(imageSize.height, imageSize.width, info.is16Bit ? CvType.CV_16UC3 : CvType.CV_8UC3);
-            stack = new Mat((int)(boxSize.height), (int)(boxSize.width), pixelType);
-            stackr = new Mat((int)(boxSize.height * scale), (int)(boxSize.width * scale), CvType.CV_8UC1);
-            stackrc = new Mat((int)(boxSize.height * scale), (int)(boxSize.width * scale), CvType.CV_8UC3);
-        }
         // Crop if needed ?
         if (!doCropCheck.getState()) {
             boxSize = source.size();
+        }
+        if (source == null || this.is16Bits != info.is16Bit) {
+            target = new BufferedImage((int)(boxSize.width), (int)(boxSize.height), BufferedImage.TYPE_3BYTE_BGR);
+            source = new Mat(imageSize.height, imageSize.width, pixelType);
+            color = new Mat(imageSize.height, imageSize.width, info.is16Bit ? CvType.CV_16UC3 : CvType.CV_8UC3);
+            stack = new Mat((int)(boxSize.height), (int)(boxSize.width), pixelType);
+            stackr = new Mat((int)(boxSize.height), (int)(boxSize.width), info.is16Bit ? CvType.CV_16UC1 : CvType.CV_8UC1);
+            stackrc = new Mat((int)(boxSize.height), (int)(boxSize.width), info.is16Bit ? CvType.CV_16UC3 : CvType.CV_8UC3);
+            if (info.is16Bit) {
+                framesNormalizeMax.setMaximum(65535);
+                framesNormalizeMin.setMaximum(65535);
+                framesNormalizeMax.setValue(55000);
+            } else {
+                framesNormalizeMax.setMaximum(255);
+                framesNormalizeMin.setMaximum(255);
+            }
+            this.is16Bits = info.is16Bit;
         }
         //
         try {
             error.setText("No error.");
             // Fill matrix
-            source.put(0, 0, pixels);
+            if (info.is16Bit) {
+                short s[] = new short[pixels.length / 2];
+                ByteBuffer.wrap(pixels).order(ByteOrder.nativeOrder()).asShortBuffer().get(s);
+                source.put(0, 0, s);
+            } else {
+                source.put(0, 0, pixels);
+            }
             // Do debayer
             Imgproc.cvtColor(source, color, bayerFmt);
             // Split color channels
@@ -163,8 +177,8 @@ public class Window {
             // Select the right one
             source = planes.get(colorList.getSelectedIndex());
             // Get projection
-            Core.reduce(source, xAxis, 0, Core.REDUCE_SUM, CvType.CV_32S);
-            Core.reduce(source, yAxis, 1, Core.REDUCE_SUM, CvType.CV_32S);
+            Core.reduce(source, xAxis, 0, Core.REDUCE_SUM, info.is16Bit ? CvType.CV_64F : CvType.CV_32S);
+            Core.reduce(source, yAxis, 1, Core.REDUCE_SUM, info.is16Bit ? CvType.CV_64F : CvType.CV_32S);
             // locate maximum position on histogram
             Core.MinMaxLocResult mmrX = Core.minMaxLoc(xAxis);
             Core.MinMaxLocResult mmrY = Core.minMaxLoc(yAxis);
@@ -200,7 +214,9 @@ public class Window {
                 meanLevel = 0;
                 stackCount = 0;
                 // convert back
-                Imgproc.resize(stack, stackr, stackr.size(), scale, scale, Imgproc.INTER_NEAREST);
+                int zoomX = target.getWidth() / stackr.width();
+                int zoomY = target.getHeight() / stackr.height();
+                Imgproc.resize(stack, stackr,new Size(target.getWidth(), target.getHeight()), zoomX, zoomY, Imgproc.INTER_LINEAR);
                 Imgproc.cvtColor(stackr, stackrc, Imgproc.COLOR_GRAY2BGR);
                 if (doCorrCheck.getState()) {
                     Moments moments = Imgproc.moments(stackr, false);
@@ -210,10 +226,24 @@ public class Window {
                     int centerY = stackr.height() / 2;
                     // scale up line
                     Imgproc.line(stackrc, new org.opencv.core.Point(centerX, centerY),
-                            new org.opencv.core.Point(centerX + (targetP.x - centerX) * 20, centerY + (targetP.y - centerY) * 20), new Scalar(255, 0, 0));
+                            new org.opencv.core.Point(centerX + (targetP.x - centerX) * 10, centerY + (targetP.y - centerY) * 10), new Scalar(info.is16Bit ? 65535 : 255, 0, 0));
+                    // Compute vector mean
+                    if (meanDirX == 0 && meanDirY == 0) {
+                        meanDirX = centerX - (int)targetP.x;
+                        meanDirY = centerY - (int)targetP.y;
+                    } else {
+                        meanDirX = (meanDirX + ((int)targetP.x - centerX)) / 2;
+                        meanDirY = (meanDirY + ((int)targetP.y - centerY)) / 2;
+                        Imgproc.line(stackrc, new org.opencv.core.Point(centerX, centerY),
+                                new org.opencv.core.Point(centerX + meanDirX * 10, centerY + meanDirY * 10), new Scalar(0, info.is16Bit ? 65535 : 255, 0));
+
+                    }
+                }
+                if (info.is16Bit) {
+                    stackrc.convertTo(stackrc, CvType.CV_8UC3, 1.0/255.0);
                 }
                 final byte[] data = ((DataBufferByte) target.getRaster().getDataBuffer()).getData();
-                stackrc.get(0,0, data);
+                stackrc.get(0, 0, data);
                 // better way to clear stack
                 stack = targetr.clone();
             }
