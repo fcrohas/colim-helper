@@ -13,7 +13,9 @@ public class Main implements de.wonderplanets.firecapture.plugin.IFilter{
     public static final String PLUGIN_NAME = "Colimation Helper";
     public static final String PLUGIN_DESCIPTION = "Help user to get the airy figure well";
 
-    private Window window = null;
+    private MainWindow window = null;
+    private Processor processor = null;
+    private ProcessorContext context = null;
 
     public String getName() {
         return PLUGIN_NAME;
@@ -69,15 +71,32 @@ public class Main implements de.wonderplanets.firecapture.plugin.IFilter{
 
     public void activated() {
         if (window == null) {
-            window = new Window();
-        }
+            context = new ProcessorContext();
+            processor = new Processor(context);
+            window = new MainWindow(context);
+            processor.setNotifier(new Notifier() {
+                @Override
+                public void refresh() {
+                    window.reDraw();
+                }
 
+                @Override
+                public void parametersChange() {
+                    window.parameterChange();
+                }
+            });
+        }
     }
 
     public void release() {
-        if (window != null)
-            window.dispose();
+        if (window != null) {
+            window.close();
             window = null;
+        }
+        if (processor != null) {
+            processor.dispose();
+            processor = null;
+        }
     }
 
     public boolean capture() {
@@ -85,11 +104,10 @@ public class Main implements de.wonderplanets.firecapture.plugin.IFilter{
     }
 
     public void computeMono(byte[] bytePixels, Rectangle imageSize, CamInfo info) {
-        window.drawMono(bytePixels, imageSize, info);
+        processor.process(bytePixels, imageSize, info);
     }
 
     public void computeColor(int[] rgbPixels, Rectangle imageSize, CamInfo info) {
-        window.drawColor(rgbPixels, imageSize);
     }
 
     public void captureStoped() {
