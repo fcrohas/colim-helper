@@ -16,9 +16,9 @@ public class ProcessorContext {
     private int normalizeMin = 0;
     private int normalizeMax = 200;
     private String[] bayerPattern = { "RG", "BG", "GR", "GB" };
-    private String[] colors = { "BLUE", "GREEN", "RED" };
+    private String[] colors = { "RED", "GREEN", "BLUE" }; // Due to opencv bug, switch color RED / BLUE there as we are in BGR
     private int selectedPatternIndex = 0;
-    private int selectedColorIndex = 2;
+    private int selectedColorIndex = 0;
     private String message;
     private CamInfo info = new CamInfo();
     private Rectangle imageSize = null;
@@ -28,7 +28,7 @@ public class ProcessorContext {
     }
 
     public ProcessorContext(ProcessorContext context) {
-        this.target = context.getTarget();
+        this.target = new BufferedImage(context.getTarget().getWidth(), context.getTarget().getHeight(), context.getTarget().getType());
         this.doCrop = context.isDoCrop();
         this.showCorrection = context.isShowCorrection();
         this.framesToStack = context.getFramesToStack();
@@ -193,6 +193,8 @@ public class ProcessorContext {
                 Arrays.equals(colors, that.colors) &&
                 info.isColor == that.info.isColor &&
                 info.is16Bit == that.info.is16Bit &&
+                info.maxImageSize.width == that.info.maxImageSize.width &&
+                info.maxImageSize.height == that.info.maxImageSize.height &&
                 imageSize.width == that.imageSize.width &&
                 imageSize.height == that.imageSize.height;
     }

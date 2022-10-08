@@ -6,7 +6,6 @@ import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import java.awt.*;
-import java.awt.image.*;
 
 public class MainWindow {
     private final ProcessorContext context;
@@ -87,7 +86,7 @@ public class MainWindow {
         framesNormalizeMin = new JSlider(JSlider.HORIZONTAL, 0, 255, context.getNormalizeMin());
         framesNormalizeMax = new JSlider(JSlider.HORIZONTAL, 0, 255, context.getNormalizeMax());
         normMaxChange = e -> context.setNormalizeMax(framesNormalizeMax.getValue());
-        normMinChange = e -> context.setNormalizeMin(framesNormalizeMax.getValue());
+        normMinChange = e -> context.setNormalizeMin(framesNormalizeMin.getValue());
         framesNormalizeMin.addChangeListener(normMinChange);
         framesNormalizeMax.addChangeListener(normMaxChange);
         error = new Label("");
@@ -118,7 +117,7 @@ public class MainWindow {
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         JTabbedPane tabbedPane = new JTabbedPane();
         tabbedPane.addTab("Colimate", toolbar);
-        tabbedPane.addTab("Info", infoLabel);
+        //tabbedPane.addTab("Info", infoLabel);
         frame.getContentPane().add(tabbedPane, BorderLayout.EAST);
         panel.setLayout(new BorderLayout());
         frame.add(panel, BorderLayout.CENTER);

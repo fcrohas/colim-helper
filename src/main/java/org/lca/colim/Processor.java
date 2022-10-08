@@ -85,6 +85,8 @@ public class Processor {
         if ((oldContext == null) || (oldContext.getInfo().is16Bit != context.getInfo().is16Bit)) {
             notifier.parametersChange();
         }
+        xAxis = new Mat();
+        yAxis = new Mat();
         meanLevel = 0;
         meanDirX = 0;
         meanDirY = 0;
@@ -97,9 +99,9 @@ public class Processor {
         // Crop if needed ?
         if (needReinit()) {
             if (context.getImageSize() == null) {
-                context.setImageSize(imageSize);
+                context.setImageSize(info.maxImageSize);
             } else {
-                context.getImageSize().setSize(imageSize.width, imageSize.height);
+                context.getImageSize().setSize(info.maxImageSize.width, info.maxImageSize.height);
             }
             context.setInfo(info);
             initialize();
@@ -224,6 +226,7 @@ public class Processor {
         stack.release();
         stackr.release();
         stackrc.release();
+        targetr.release();
         warpMat.release();
         source = null;
         stack = null;
