@@ -22,6 +22,9 @@ public class ProcessorContext {
     private String message;
     private CamInfo info = new CamInfo();
     private Rectangle imageSize = null;
+    private int displayMode = 0;
+    private int minFWHM;
+    private int curFWHM;
 
     public ProcessorContext() {
 
@@ -46,8 +49,18 @@ public class ProcessorContext {
         this.info.pixelSize = context.getInfo().pixelSize;
         this.info.sensorTempInCelsius = context.getInfo().sensorTempInCelsius;
         this.info.maxImageSize = context.getInfo().maxImageSize;
+        this.displayMode = context.getDisplayMode();
 
         this.imageSize = context.getImageSize();
+    }
+
+    public int getDisplayMode() {
+        return displayMode;
+    }
+
+    public ProcessorContext setDisplayMode(int displayMode) {
+        this.displayMode = displayMode;
+        return this;
     }
 
     public BufferedImage getTarget() {
@@ -196,7 +209,26 @@ public class ProcessorContext {
                 info.maxImageSize.width == that.info.maxImageSize.width &&
                 info.maxImageSize.height == that.info.maxImageSize.height &&
                 imageSize.width == that.imageSize.width &&
-                imageSize.height == that.imageSize.height;
+                imageSize.height == that.imageSize.height &&
+                displayMode == that.displayMode;
+    }
+
+    public int getMinFWHM() {
+        return minFWHM;
+    }
+
+    public ProcessorContext setMinFWHM(int minFWHM) {
+        this.minFWHM = minFWHM;
+        return this;
+    }
+
+    public int getCurFWHM() {
+        return curFWHM;
+    }
+
+    public ProcessorContext setCurFWHM(int curFWHM) {
+        this.curFWHM = curFWHM;
+        return this;
     }
 
     @Override

@@ -40,6 +40,7 @@ public class Processor {
     private ProcessorContext oldContext = null;
     private int pixelType;
     private List<Mat> planes = new ArrayList<>();
+    private int minFwhm = -1;
     // Static opencv initialization
     // Should support all OS(es)
     // Linux, Windows, RPI, Mac
@@ -99,9 +100,9 @@ public class Processor {
         // Crop if needed ?
         if (needReinit()) {
             if (context.getImageSize() == null) {
-                context.setImageSize(info.maxImageSize);
+                context.setImageSize(imageSize);
             } else {
-                context.getImageSize().setSize(info.maxImageSize.width, info.maxImageSize.height);
+                context.getImageSize().setSize(imageSize.width, imageSize.height);
             }
             context.setInfo(info);
             initialize();
@@ -172,7 +173,7 @@ public class Processor {
                 int zoomY = context.getTarget().getHeight() / stackr.height();
                 Imgproc.resize(stack, stackr,new Size(context.getTarget().getWidth(), context.getTarget().getHeight()), zoomX, zoomY, Imgproc.INTER_LINEAR);
                 Imgproc.cvtColor(stackr, stackrc, Imgproc.COLOR_GRAY2BGR);
-                if (context.isShowCorrection()) {
+                if (context.isShowCorrection() && context.getDisplayMode() == 0) {
                     Moments moments = Imgproc.moments(stackr, false);
                     // Direction Overlay
                     org.opencv.core.Point targetP = new org.opencv.core.Point(moments.m10 / (moments.m00 + 1e-5), moments.m01 / (moments.m00 + 1e-5));
@@ -192,6 +193,77 @@ public class Processor {
                                 new org.opencv.core.Point(centerX + meanDirX * 10, centerY + meanDirY * 10), new Scalar(0, info.is16Bit ? 65535 : 255, 0));
 
                     }
+                } else if (context.getDisplayMode() == 1) {
+                    Mat fwhmM = Mat.zeros(stackr.size(), CvType.CV_8UC1);
+                    int centerX = stackr.width() / 2;
+                    int centerY = stackr.height() / 2;
+                    // From maximum at center
+                    int max = (int)stackr.get(centerY, centerX)[0];
+                    // Find width at half height
+                    int halfWidth = max / 2;
+                    // search star width
+                    byte[] pixel = { 0xF };
+                    Mat rotStar = stackr.clone();
+                    int fwhm = 0;
+                    // Loop on 180° to get average around star
+                    for (int r = 0; r < 90; r+=10) {
+                        // Detect X curve low / high
+                        int lowX  = 0;
+                        int highX = 0;
+                        for (int x = 0; x < rotStar.width(); x++) {
+                            if (((int) rotStar.get(centerY, x)[0] > halfWidth) && lowX == 0 && highX == 0) {
+                                lowX = x;
+                                fwhmM.put(centerY, x, pixel);
+                            }
+                            if (((int) rotStar.get(centerY, x)[0] < halfWidth) && lowX != 0 && highX == 0) {
+                                highX = x;
+                                fwhmM.put(centerY, x, pixel);
+                            }
+                        }
+                        fwhm = (highX - lowX) * zoomX;
+                        // Detect Y curve low / high
+                        lowX = 0;
+                        highX = 0;
+                        for (int y = 0 ; y < rotStar.height(); y++) {
+                            if ((int) rotStar.get(y, centerX)[0] > halfWidth && lowX == 0 && highX == 0) {
+                                lowX = y;
+                                fwhmM.put(y, centerX, pixel);
+                            }
+                            if ((int) rotStar.get(y, centerX)[0] < halfWidth && lowX != 0 && highX == 0) {
+                                highX = y;
+                                fwhmM.put(y, centerX, pixel);
+                            }
+                        }
+                        // mean fwhm
+                        fwhm = ((highX - lowX) * zoomY + fwhm) / 2;
+                        context.setCurFWHM(fwhm);
+                        if (minFwhm == -1 || fwhm < minFwhm) {
+                            minFwhm = fwhm;
+                            context.setMinFWHM(minFwhm);
+                        }
+                        final org.opencv.core.Point centerR = new org.opencv.core.Point(rotStar.width() / 2.0d, rotStar.height() / 2.0d);
+                        final Mat rotImage = Imgproc.getRotationMatrix2D(centerR, r, 1.0);
+                        //100 % scale
+                        final Size size = new Size(rotStar.width(), rotStar.height());
+                        Imgproc.warpAffine(rotStar, rotStar, rotImage, size, Imgproc.INTER_LANCZOS4 | Imgproc.CV_WARP_FILL_OUTLIERS);
+                        Imgproc.warpAffine(fwhmM, fwhmM, rotImage, size, Imgproc.INTER_LANCZOS4 | Imgproc.CV_WARP_FILL_OUTLIERS);
+                        rotImage.release();
+                    }
+                    // rotate back to fit image
+                    Core.rotate(fwhmM, fwhmM, Core.ROTATE_90_COUNTERCLOCKWISE);
+                    // find all FWHM points around star
+                    Mat pointsF = new Mat();
+                    Core.findNonZero(fwhmM, pointsF);
+                    MatOfPoint points = new MatOfPoint(pointsF);
+                    //MatOfPoint2f points2f = new MatOfPoint2f(points.toArray());
+                    // fit to an ellipse
+                    RotatedRect minEllipse = Imgproc.fitEllipseDirect(points);
+                    Imgproc.ellipse(stackrc, minEllipse, new Scalar(0, info.is16Bit ? 65535 : 255, 0));
+                    //points2f.release();
+                    points.release();
+                    rotStar.release();
+                    fwhmM.release();
+                    context.setMessage("Mean FWHM is "+ fwhm + " px");
                 }
                 if (info.is16Bit) {
                     stackrc.convertTo(stackrc, CvType.CV_8UC3, 1.0/255.0);
